@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOGARITHM — вопрос, который меняет масштаб</title>
+<meta name="description" content="Интерактивное путешествие в мир логарифмов: игра с миллионом чисел, степени, определение, условия существования, цифры, децибелы, магнитуды и сложные проценты.">
+<meta name="theme-color" content="#080A10">
+<link rel="icon" href="assets/images/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- Фоновые частицы -->
+<canvas id="bgCanvas" aria-hidden="true"></canvas>
+
+<!-- Слой WebGL-переходов -->
+<canvas id="fxCanvas" aria-hidden="true"></canvas>
+
+<!-- Стартовый экран -->
+<div id="intro" class="intro" role="dialog" aria-modal="true" aria-labelledby="introTitle">
+  <div class="intro__inner">
+    <p class="intro__kicker" data-anim>Интерактивное путешествие · 8 эпизодов · ≈ 10 минут</p>
+    <h1 id="introTitle" class="intro__title" data-anim>LOGA<span class="intro__title-accent">RITHM</span></h1>
+    <p class="intro__tag" data-anim>Вопрос, который меняет&nbsp;масштаб</p>
+    <p class="intro__note" data-anim>Не читать определение — <b>открыть его самому</b>: игра с миллионом чисел, степени, графики, звук, деньги и&nbsp;землетрясения.</p>
+    <div class="intro__actions" data-anim>
+      <button id="introStart" class="btn btn--accent btn--big" type="button">Начать путешествие</button>
+      <button id="introContinue" class="btn btn--ghost" type="button" hidden>Продолжить с эпизода 01</button>
+      <button id="introLab" class="btn btn--ghost" type="button">Сразу к тренажёру</button>
+    </div>
+    <p class="intro__hint" data-anim>Совет: включите звук — эпизоды озвучены. Весь материал дублируется текстом и субтитрами.</p>
+  </div>
+</div>
+
+<!-- Верхняя панель -->
+<header class="topbar" aria-label="Прогресс и навигация">
+  <div class="topbar__row">
+    <button id="btnMenu" class="topbar__btn topbar__btn--wide" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="epMenu">
+      <span id="epIndicator" class="topbar__indicator">ЭПИЗОД 01</span>
+      <span class="topbar__chev" aria-hidden="true">▾</span>
+    </button>
+    <div class="topbar__spacer"></div>
+    <button id="btnPrevEp" class="topbar__btn" type="button" title="Предыдущий эпизод" aria-label="Предыдущий эпизод">‹</button>
+    <button id="btnNextEp" class="topbar__btn" type="button" title="Следующий эпизод" aria-label="Следующий эпизод">›</button>
+    <button id="btnSettings" class="topbar__btn" type="button" title="Звук и субтитры" aria-haspopup="true" aria-expanded="false" aria-controls="settingsPop">⚙<span class="sr-only">Настройки звука и субтитров</span></button>
+  </div>
+  <div id="progress" class="progress" role="progressbar" aria-label="Прогресс прохождения" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+
+  <!-- Меню эпизодов -->
+  <div id="epMenu" class="pop" role="menu" hidden>
+    <p class="pop__title">Эпизоды</p>
+    <div id="epMenuList" class="pop__list"></div>
+  </div>
+
+  <!-- Настройки звука и субтитров -->
+  <div id="settingsPop" class="pop" role="dialog" aria-label="Настройки звука и субтитров" hidden>
+    <p class="pop__title">Звук и субтитры</p>
+    <label class="pop__row pop__row--check">
+      <input type="checkbox" id="chkVoice" checked>
+      <span>Озвучка включена</span>
+    </label>
+    <label class="pop__row pop__row--check">
+      <input type="checkbox" id="chkSubs" checked>
+      <span>Субтитры</span>
+    </label>
+    <div id="voiceRow" class="pop__row">
+      <label for="voiceSel">Голос</label>
+      <select id="voiceSel" aria-label="Выбор русского голоса"></select>
+    </div>
+    <div class="pop__row">
+      <label for="rateRange">Скорость речи: <output id="rateOut">1,0×</output></label>
+      <input type="range" id="rateRange" min="0.7" max="1.4" step="0.05" value="1" aria-label="Скорость речи">
+    </div>
+    <p id="voiceNote" class="pop__note"></p>
+    <p class="pop__note">Синхронизация субтитров — по предложениям. Полный текст каждой сцены доступен под сценой.</p>
+  </div>
+</header>
+
+<!-- Сцена -->
+<main id="stage" class="stage" tabindex="-1">
+  <noscript>
+    <section class="episode">
+      <h1>LOGARITHM</h1>
+      <p>Для работы сайта нужен включённый JavaScript. Включите его и обновите страницу.</p>
+    </section>
+  </noscript>
+</main>
+
+<!-- Субтитры -->
+<div id="subtitle" class="subtitle" aria-live="polite" hidden></div>
+
+<!-- Нижний док управления -->
+<nav class="dock" aria-label="Управление сценой">
+  <button id="btnPlay" class="dock__btn dock__btn--voice" type="button" title="Слушать / пауза (пробел)">▶<span class="dock__lbl">Слушать</span></button>
+  <button id="btnReplay" class="dock__btn" type="button" title="Повторить озвучку сцены">⟲<span class="dock__lbl">Озвучка</span></button>
+  <button id="btnRestart" class="dock__btn" type="button" title="Перезапустить эксперимент эпизода (R)">↺<span class="dock__lbl">Сначала</span></button>
+  <span class="dock__spacer"></span>
+  <button id="btnPrev" class="dock__btn" type="button" title="Назад (←)">‹<span class="dock__lbl">Назад</span></button>
+  <button id="btnNext" class="dock__btn dock__btn--next" type="button" title="Дальше (→)">Дальше<span class="dock__lbl">→</span></button>
+</nav>
+
+<p class="keys-hint" aria-hidden="true">← → эпизод · пробел — озвучка · R — сначала</p>
+
+<!-- Ошибка WebGL / фолбэк-переход -->
+<div id="fxFallback" class="fx-fallback" aria-hidden="true"></div>
+
+<script src="js/core.js"></script>
+<script src="js/voice.js"></script>
+<script src="js/transitions.js"></script>
+<script src="js/e01.js"></script>
+<script src="js/e02.js"></script>
+<script src="js/e03.js"></script>
+<script src="js/e04.js"></script>
+<script src="js/e05.js"></script>
+<script src="js/e06.js"></script>
+<script src="js/e07.js"></script>
+<script src="js/e08.js"></script>
+<script src="js/lab.js"></script>
+<script>
+  // Точка входа: все эпизоды зарегистрированы — запускаем движок.
+  LOG.boot();
+</script>
+</body>
+</html>
