@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ЛОГАРИФМ · АП-2 — сеанс связи с неизвестным абонентом</title>
+<meta name="description" content="Терминал советской ЭВМ «РУБИН»: переписка с неизвестным абонентом, который обещает угадать ваше число от 1 до 100 000 за 17 вопросов — и раскрыть, что такое логарифм.">
+<meta name="theme-color" content="#0a0a0b">
+<link rel="icon" href="assets/images/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- WebGL-фон: зерно плёнки, дым, виньетка -->
+<canvas id="bggl" aria-hidden="true"></canvas>
+
+<!-- Терминал -->
+<div id="crt" aria-label="Терминал переписки">
+  <header id="bar">
+    <div class="bar-left">
+      <button id="btnMenu" class="tbtn" aria-haspopup="true" aria-expanded="false">СЕАНСЫ</button>
+      <button id="btnPrevEp" class="tbtn tbtn--sq" title="Предыдущий сеанс" aria-label="Предыдущий сеанс">‹</button>
+      <button id="btnNextEp" class="tbtn tbtn--sq" title="Следующий сеанс" aria-label="Следующий сеанс">›</button>
+      <button id="btnRestart" class="tbtn tbtn--sq" title="Перезапустить сеанс" aria-label="Перезапустить сеанс">↺</button>
+      <button id="btnPause" class="tbtn" title="Пауза сеанса [P]" aria-pressed="false">ПАУЗА</button>
+      <button id="btnSound" class="tbtn tbtn--sq" title="Звук телетайпа" aria-label="Звук телетайпа" aria-pressed="false">ЗВУК</button>
+    </div>
+    <div id="sessLabel" class="sess-label">СЕАНС --</div>
+    <div class="bar-right">
+      <div id="sessProgress" aria-label="Прогресс по сеансам"></div>
+      <span id="linkDot" class="link-dot"><i></i>СВЯЗЬ</span>
+    </div>
+    <div id="menuPop" class="menu-pop" hidden></div>
+  </header>
+
+  <div id="mid">
+    <main id="feed" tabindex="-1" aria-live="polite" aria-label="Лента переписки"></main>
+
+    <!-- ПУЛЬТ ХОДА: всегда видимый статус интерактивных этапов -->
+    <aside id="hud" class="hud" aria-hidden="true">
+      <div class="hud-head"><span>ПУЛЬТ ХОДА</span><span class="hud-line">ЛИНИЯ 07</span></div>
+      <div class="hud-q" id="hudQ">—</div>
+      <div class="hud-big" id="hudRem">—</div>
+      <div class="hud-cap" id="hudCap">вариантов в живых</div>
+      <div class="hud-barwrap">
+        <div class="hud-bar"><i id="hudBar"></i></div>
+        <div class="hud-range" id="hudRange">—</div>
+      </div>
+      <div class="hud-funnel" id="hudFunnel" aria-hidden="true"></div>
+      <div class="hud-note" id="hudNote"></div>
+    </aside>
+  </div>
+
+  <button id="newPill" hidden>▼ ПОКАЗАТЬ НОВОЕ <b id="newCount"></b></button>
+
+  <!-- Компактная карточка выбора: парит над лентой, экран не закрывает -->
+  <div id="askCard" aria-hidden="true">
+    <div class="ask-kicker" id="askKicker">АБОНЕНТ ЖДЁТ ОТВЕТА</div>
+    <div class="ask-prompt" id="askPrompt"></div>
+    <div class="ask-opts" id="askOpts" role="group" aria-label="Варианты ответа"></div>
+    <div class="ask-hint">[1–9] — выбор · лента листается, реплики можно перечитать</div>
+  </div>
+
+  <footer id="deck">
+    <div id="hint" class="deck-hint">[1–9] — выбор · [пробел] — ускорить печать · [P] — пауза</div>
+  </footer>
+</div>
+
+<!-- Кинетический слой: титры, крупные слова, плакаты -->
+<div id="kinetic" aria-hidden="true"><div id="kineticStage"></div></div>
+
+<!-- Оверлей эффектов: помехи, глитч -->
+<div id="fx" aria-hidden="true"></div>
+
+<!-- WebGL-переходы между сеансами -->
+<canvas id="gltrans" aria-hidden="true"></canvas>
+<div id="fade" aria-hidden="true"></div>
+
+<!-- Экран загрузки ЭВМ -->
+<div id="boot" role="dialog" aria-label="Загрузка терминала">
+  <div class="boot-frame">
+    <div class="boot-logotype" id="bootLogo" aria-hidden="true"></div>
+    <pre id="bootLines" aria-live="polite"></pre>
+    <div class="boot-bar"><i id="bootBar"></i></div>
+  </div>
+</div>
+
+<script src="js/sfx.js"></script>
+<script src="js/shader.js"></script>
+<script src="js/kinetic.js"></script>
+<script src="js/viz.js"></script>
+<script src="js/core.js"></script>
+<script src="js/ascii.js"></script>
+<script src="js/sc01.js"></script>
+<script src="js/sc02.js"></script>
+<script src="js/sc03.js"></script>
+<script src="js/sc04.js"></script>
+<script src="js/sc05.js"></script>
+<script src="js/sc06.js"></script>
+<script src="js/sc07.js"></script>
+<script src="js/sc08.js"></script>
+<script src="js/lab.js"></script>
+<script>TERM.boot();</script>
+</body>
+</html>
