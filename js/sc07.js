@@ -1,12 +1,14 @@
 'use strict';
-/* СЕАНС 07 — логарифм вокруг: децибелы, магнитуды, сложные проценты. */
+/* СЕАНС 07 — логарифм вокруг: децибелы, магнитуды, сложные проценты.
+   Все три демо — живые canvas-визуализации на пульте выбора. */
 (function () {
-  var A = TERM.ascii, U = TERM.U, nb = TERM.nb;
+  var U = TERM.U;
 
   function dbAnim(box, api, done) {
     (async function () {
       api.sys('ВЫБИРАЙТЕ УРОВЕНЬ — Я ПОКАЖУ ИНТЕНСИВНОСТЬ. ЗАКОНЧИМ — «ДАЛЬШЕ».');
       var DBS = [30, 60, 90, 120];
+      var meter = TERM.viz.db(box);
       var comments = {
         30: 'Шёпот. Интенсивность в тысячу раз меньше разговорной — а на шкале он всего на три десятка левее. Я живу в этих «десятках».',
         60: 'Обычный разговор. Фиксируем как точку отсчёта.',
@@ -20,12 +22,10 @@
           opts: [{ t: '30 дБ' }, { t: '60 дБ' }, { t: '90 дБ' }, { t: '120 дБ' }, { t: 'ДАЛЬШЕ', dim: true }]
         });
         if (i === 4) break;
-        var d = document.createElement('div');
-        d.innerHTML = U.mk(A.dbLine(DBS[i]));
-        box.appendChild(d);
-        api.scroll();
+        meter.set(DBS[i], true);
         await api.sayAb(comments[DBS[i]]);
       }
+      meter.done();
       api.frame({
         t: 'ДЕЦИБЕЛЫ',
         l: [
@@ -41,6 +41,8 @@
   function quakeAnim(box, api, done) {
     (async function () {
       api.sys('СТРОКА 1 — ЭТАЛОН M 5.0. СТРОКА 2 — ВАШ ВЫБОР.');
+      var q = TERM.viz.quake(box);
+      q.set(0, 5);
       for (;;) {
         var i = await api.askRaw({
           prompt: 'Магнитуда второго толчка:',
@@ -49,11 +51,7 @@
         });
         if (i === 4) break;
         var mags = [5, 6, 7, 8];
-        var d1 = document.createElement('div');
-        d1.innerHTML = U.mk('M 5.0  ' + A.quakeLine(5) + '  [[dim:эталон]]');
-        var d2 = document.createElement('div');
-        d2.innerHTML = U.mk('M ' + mags[i] + '.0  [[ok:' + A.quakeLine(mags[i]) + ']]');
-        box.appendChild(d1); box.appendChild(d2);
+        q.set(1, mags[i]);
         var c = {
           0: 'Эталон. Дальше смотрите, как растёт запись при сдвиге на единицы магнитуды.',
           1: 'Плюс одна единица магнитуды: амплитуда записи ×10, а выделенная энергия ×10¹·⁵ — примерно ×32. Шкала выросла на единицу, физика — на порядок.',
@@ -61,8 +59,8 @@
           3: 'Плюс три: амплитуда ×1000, энергия примерно ×31 600. Заметьте: магнитуда говорит о СИЛЕ ИСТОЧНИКА. Сила сотрясений в конкретном доме зависит ещё от расстояния и грунта.'
         }[i];
         await api.sayAb(c);
-        api.scroll();
       }
+      q.done();
       api.frame({
         t: 'МАГНИТУДА',
         l: [
@@ -78,6 +76,7 @@
     (async function () {
       api.sys('МЕНЯЙТЕ СТАВКУ — Я ПЕРЕСЧИТЫВАЮ СРОК УДВОЕНИЯ.');
       var RATES = [6, 12, 24];
+      var m = TERM.viz.money(box);
       for (;;) {
         var i = await api.askRaw({
           prompt: 'Ставка по вкладу:',
@@ -85,16 +84,15 @@
           opts: [{ t: '6%' }, { t: '12%' }, { t: '24%' }, { t: 'ХВАТИТ', dim: true }]
         });
         if (i === 3) break;
-        var rate = RATES[i];
-        A.moneyTable(box, api, rate, 100000);
+        m.set(RATES[i]);
         var c = {
           0: 'n = lg 2 / lg(1,06) ≈ 11,9. Начисление раз в год — значит впервые сумма удвоится после 12-го года. Смотрите таблицу: год 11 даёт 1,90, год 12 — уже 2,01.',
           1: 'n = lg 2 / lg(1,12) ≈ 6,12. Шесть лет — ещё 1,97, семь — уже 2,21. Логарифм сказал точный момент, а календарь округлил его вверх.',
           2: 'n = lg 2 / lg(1,24) ≈ 3,22. Удвоение за четыре года: 1,24³ ≈ 1,91 — ещё чуть-чуть, 1,24⁴ ≈ 2,36 — уже есть. Ставка выросла вдвое — срок упал почти вчетверо.'
         }[i];
         await api.sayAb(c);
-        api.scroll();
       }
+      m.done();
       api.frame({
         t: 'СЛОЖНЫЕ ПРОЦЕНТЫ',
         l: [
