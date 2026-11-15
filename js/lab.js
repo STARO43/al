@@ -1,344 +1,182 @@
 'use strict';
-/* ТРЕНАЖЁР — калькулятор логарифмов, графики aˣ и logₐx, логарифмическая шкала, мини-контроль. */
+/* ТРЕНАЖЁР — калькулятор выбором, ASCII-график, шкала, мини-контроль. */
 (function () {
-  var U = LOG.U, F = LOG.F;
-  var NS = 'http://www.w3.org/2000/svg';
+  var A = TERM.ascii, U = TERM.U;
 
-  function svgAdd(svg, t, attrs, text) {
-    var e = document.createElementNS(NS, t);
-    for (var k in attrs) e.setAttribute(k, attrs[k]);
-    if (text != null) e.textContent = text;
-    svg.appendChild(e);
-    return e;
+  /* Рамка в контейнер */
+  function fbox(box, spec) { return apiFrame(box, spec); }
+  function apiFrame(box, spec) { return TERM.api.frame(spec, box); }
+
+  function fmtX(x) {
+    var r = Math.round(x);
+    if (Math.abs(x - r) < 1e-9) return String(r);
+    return U.plain(x.toFixed(4).replace(/0+$/, '').replace(/\.$/, '').replace('.', ','));
   }
+  function fmt4(x) { return U.plain(x.toFixed(4).replace('.', ',')); }
+  function nb(n) { return TERM.nb(n); }
 
   /* ---------- Калькулятор ---------- */
-  function buildCalc(box, api) {
-    var grid = U.el('div', 'lab-calc');
-    var form = U.el('div', 'card');
-    form.innerHTML =
-      '<div class="field"><label for="calcA">Основание a (&gt; 0, ≠ 1)</label><input id="calcA" type="text" inputmode="decimal" value="2" placeholder="напр. 2 или 1/2"></div>' +
-      '<div class="field" style="margin-top:10px"><label for="calcB">Аргумент b (&gt; 0)</label><input id="calcB" type="text" inputmode="decimal" value="8" placeholder="напр. 8 или 0,5"></div>' +
-      '<div class="row" style="margin-top:14px">' +
-      '<button id="calcGo" class="btn btn--accent" type="button">Вычислить</button>' +
-      '<span class="muted" style="font-size:13px">дробные можно писать как 1/2 или 0,5</span></div>';
-    var out = U.el('div', 'card');
-    out.innerHTML =
-      '<div class="center" id="calcOut" aria-live="polite"><p class="muted" style="margin:0">Введите основание и аргумент.</p></div>';
-    grid.appendChild(form);
-    grid.appendChild(out);
-    box.appendChild(grid);
+  function calcAnim(box, api, done) {
+    (async function () {
+      api.sys('КАЛЬКУЛЯТОР: ВЫБЕРИТЕ ОСНОВАНИЕ, ПОТОМ АРГУМЕНТ. Я ПОСЧИТАЮ И ОБЪЯСНЮ КАЖДЫЙ ОТКАЗ.');
+      var As = [2, 3, 10, 0.5, 1, -2];
+      var Bs = [8, 81, 1000, 1, 0.125, 32, 0, -9];
+      for (;;) {
+        var ia = await api.askRaw({
+          prompt: 'Основание a:',
+          row: true,
+          opts: [{ t: '2' }, { t: '3' }, { t: '10' }, { t: '1/2' }, { t: '1' }, { t: '−2' }, { t: 'ВЫХОД', dim: true }]
+        });
+        if (ia === 6) break;
+        var a = As[ia];
+        var ib = await api.askRaw({
+          prompt: 'Аргумент b:',
+          row: true,
+          opts: [{ t: '8' }, { t: '81' }, { t: '1000' }, { t: '1' }, { t: '1/8' }, { t: '32' }, { t: '0' }, { t: '−9' }, { t: 'ВЫХОД', dim: true }]
+        });
+        if (ib === 8) break;
+        var b = Bs[ib];
+        var as = a === 0.5 ? '1/2' : String(a).replace('-', '−');
+        var bs = b === 0.125 ? '1/8' : String(b).replace('-', '−');
 
-    function go() {
-      var o = out.querySelector('#calcOut');
-      var a = U.parseNum(form.querySelector('#calcA').value);
-      var b = U.parseNum(form.querySelector('#calcB').value);
-      if (isNaN(a) || isNaN(b)) {
-        o.innerHTML = '<p class="badres" style="margin:0">Введите числа. Дробные значения можно записывать как 1/2 или 0,5.</p>' +
-          '<p class="muted" style="font-size:13px;margin:6px 0 0">Например: основание 2, аргумент 8.</p>';
-        return;
-      }
-      if (a <= 0) {
-        o.innerHTML = '<p class="badres" style="margin:0">log по основанию ' + a + ' не существует: a ≤ 0.</p>' +
-          '<p class="muted" style="font-size:14px;margin:6px 0 0">Отрицательное основание не задаёт корректную степенную функцию на всех действительных показателях (эпизод 05): например, (−2)^(1/2) не определено.</p>';
-        return;
-      }
-      if (a === 1) {
-        o.innerHTML = '<p class="badres" style="margin:0">Основание не должно равняться 1.</p>' +
-          '<p class="muted" style="font-size:14px;margin:6px 0 0">1 в любой степени — это 1: получить ' + b + ' нельзя, а для аргумента 1 подошла бы любая степень — однозначного ответа нет.</p>';
-        return;
-      }
-      if (b <= 0) {
-        o.innerHTML = '<p class="badres" style="margin:0">Аргумент должен быть положительным: b ≤ 0.</p>' +
-          '<p class="muted" style="font-size:14px;margin:6px 0 0">Ни 0, ни отрицательное число нельзя получить действительной степенью положительного основания (эпизод 05).</p>';
-        return;
-      }
-      var x = Math.log(b) / Math.log(a);
-      var back = Math.pow(a, x);
-      var ok = Math.abs(back - b) <= Math.max(1e-9, Math.abs(b) * 1e-9);
-      var xs = U.fmtDec(x, x === Math.round(x) ? 0 : 4);
-      o.innerHTML =
-        '<div class="fm fm--mid" style="margin-bottom:6px">' + F.log(a, b) + ' = ' + F.res(xs) + '</div>' +
-        '<p style="margin:6px 0;font-size:15px">Это степень, в которую нужно возвести ' + a + ', чтобы получить ' + b + '.</p>' +
-        '<p class="calc-verify" style="margin:6px 0 0">Проверка обратной операцией: ' + a + '<sup>' + xs + '</sup> ≈ ' + U.fmtDec(back, 6) +
-        (ok ? ' <span class="goodres">✓ совпадает с ' + b + '</span>' : ' <span class="badres">⚠ погрешность вычислений</span>') + '</p>' +
-        '<p class="muted" style="font-size:13px;margin:6px 0 0">Примеры: ' + F.log(2, 8) + '=3 · ' + F.log(5, 1) + '=0 · lg(1000)=3</p>';
-    }
-    form.querySelector('#calcGo').addEventListener('click', go);
-    box.appendChild(U.el('p', 'muted', ''));
-    out.querySelector('#calcOut').innerHTML = '<p class="muted" style="margin:0">Нажмите «Вычислить».</p>';
-    api.done();
-  }
-
-  /* ---------- Графики ---------- */
-  function buildGraphs(box, api) {
-    var card = U.el('div', 'card graph-wrap');
-    card.innerHTML =
-      '<div class="row" style="margin-bottom:10px">' +
-      '<span class="muted">Основание:</span>' +
-      '<div class="seg" id="baseSeg" role="group" aria-label="Выбор основания"></div>' +
-      '<span class="muted" style="margin-left:12px">Точка x: <b id="gx" style="font-family:var(--font-mono);color:var(--lime)">2</b></span>' +
-      '<input id="gxR" type="range" min="0.25" max="3" step="0.05" value="2" style="flex:1;min-width:140px" aria-label="Значение x для точек на графиках">' +
-      '</div>' +
-      '<div id="graphSvg"></div>' +
-      '<div class="legend" style="margin-top:10px">' +
-      '<span><i style="background:#6C8CFF"></i>y = a<sup>x</sup></span>' +
-      '<span><i style="background:#AA78FF"></i>y = log<sub>a</sub>(x)</span>' +
-      '<span><i style="background:rgba(243,243,237,.5)"></i>y = x (зеркало)</span>' +
-      '<span><i style="background:#C8FF56"></i>связанные точки: (x, aˣ) ↔ (aˣ, x)</span>' +
-      '</div>';
-    box.appendChild(card);
-    var bases = [0.5, 1.5, 2, 3, 10];
-    var base = 2;
-    var seg = card.querySelector('#baseSeg');
-    bases.forEach(function (bv) {
-      var b = U.el('button', null, String(bv));
-      b.type = 'button';
-      b.setAttribute('aria-pressed', String(bv === base));
-      b.addEventListener('click', function () {
-        seg.querySelectorAll('button').forEach(function (o) { o.setAttribute('aria-pressed', 'false'); });
-        b.setAttribute('aria-pressed', 'true');
-        base = bv;
-        draw();
-      });
-      seg.appendChild(b);
-    });
-    var rng = card.querySelector('#gxR');
-    var svgBox = card.querySelector('#graphSvg');
-
-    function draw() {
-      var W = 560, H = 460, pad = 40;
-      var XMAX = 6, YMAX = 6;
-      var X = function (v) { return pad + v / XMAX * (W - 2 * pad); };
-      var Y = function (v) { return H - pad - v / YMAX * (H - 2 * pad); };
-      svgBox.innerHTML = '';
-      var svg = document.createElementNS(NS, 'svg');
-      svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
-      svg.setAttribute('role', 'img');
-      svg.setAttribute('aria-label', 'Графики экспоненты и логарифма, симметричные относительно прямой y=x');
-      svgBox.appendChild(svg);
-      /* сетка */
-      for (var g = 0; g <= XMAX; g++) {
-        svgAdd(svg, 'line', { x1: X(g), y1: Y(0), x2: X(g), y2: Y(YMAX), stroke: 'rgba(139,143,158,.14)' });
-        svgAdd(svg, 'line', { x1: X(0), y1: Y(g), x2: X(XMAX), y2: Y(g), stroke: 'rgba(139,143,158,.14)' });
-        if (g > 0) {
-          svgAdd(svg, 'text', { x: X(g), y: Y(0) + 16, 'font-size': 10, fill: '#898F9E', 'text-anchor': 'middle', 'font-family': 'monospace' }, String(g));
-          svgAdd(svg, 'text', { x: X(0) - 8, y: Y(g) + 3, 'font-size': 10, fill: '#898F9E', 'text-anchor': 'end', 'font-family': 'monospace' }, String(g));
+        if (a < 0) {
+          fbox(box, {
+            t: 'log' + '\u208B\u2082' + '(' + bs + ') — ОТКАЗ',
+            l: ['основание ' + as + ' < 0: (−2)^0,5 = √(−2) — не существует', 'дробные показатели ломают отрицательное основание', 'условие: [[ok:a > 0]]']
+          });
+          continue;
         }
-      }
-      svgAdd(svg, 'line', { x1: X(0), y1: Y(0), x2: X(XMAX), y2: Y(0), stroke: 'rgba(139,143,158,.6)', 'stroke-width': 1.5 });
-      svgAdd(svg, 'line', { x1: X(0), y1: Y(0), x2: X(0), y2: Y(YMAX), stroke: 'rgba(139,143,158,.6)', 'stroke-width': 1.5 });
-      /* y = x */
-      svgAdd(svg, 'line', { x1: X(0), y1: Y(0), x2: X(XMAX), y2: Y(XMAX), stroke: 'rgba(243,243,237,.4)', 'stroke-dasharray': '5 5' });
-      /* экспонента y = a^x: x от XMIN до ln(YMAX)/ln(a) */
-      var lx = Math.log(YMAX) / Math.log(base);
-      var x0 = Math.max(-YMAX, Math.min(0, -Math.log(YMAX) / Math.abs(Math.log(base))));
-      var d1 = '';
-      for (var t = x0; t <= lx; t += (lx - x0) / 140) {
-        var yv = Math.pow(base, t);
-        d1 += (d1 ? 'L' : 'M') + X(t).toFixed(1) + ' ' + Y(yv).toFixed(1) + ' ';
-      }
-      svgAdd(svg, 'path', { d: d1, fill: 'none', stroke: '#6C8CFF', 'stroke-width': 2.5 });
-      /* логарифм y = log_a(x): x от a^(-YMAX)... подходящие границы */
-      var lstart = Math.pow(base, -YMAX);
-      var lend = Math.pow(base, YMAX);
-      if (base > 1) { lstart = Math.max(lstart, 1e-3); lend = Math.min(lend, XMAX); }
-      else { lstart = Math.min(Math.max(lstart, 1e-3), XMAX); lend = Math.min(lend, XMAX); }
-      var d2 = '';
-      for (var xx = lstart; xx <= lend; xx *= (lend / lstart) / 140 + 1) {
-        var yl = Math.log(xx) / Math.log(base);
-        if (yl < -YMAX || yl > YMAX) continue;
-        d2 += (d2 ? 'L' : 'M') + X(xx).toFixed(1) + ' ' + Y(yl).toFixed(1) + ' ';
-        if (d2.length > 20000) break;
-      }
-      svgAdd(svg, 'path', { d: d2, fill: 'none', stroke: '#AA78FF', 'stroke-width': 2.5 });
-      /* точки */
-      var gx = parseFloat(rng.value);
-      card.querySelector('#gx').textContent = U.fmtDec(gx, 2).replace(/,?0+$/, '');
-      var p1x = gx, p1y = Math.pow(base, gx);
-      if (p1y <= YMAX) {
-        svgAdd(svg, 'circle', { cx: X(p1x), cy: Y(p1y), r: 6, fill: '#6C8CFF' });
-        svgAdd(svg, 'text', { x: X(p1x) + 8, y: Y(p1y) - 8, 'font-size': 11, fill: '#6C8CFF', 'font-family': 'monospace' }, '(' + U.fmtDec(gx, 1).replace(',0', '') + '; ' + U.fmtDec(p1y, 2).replace(/,?0+$/, '') + ')');
-      }
-      var p2x = p1y, p2y = gx; // зеркальная точка (aˣ, x) на логарифме
-      if (p2x <= XMAX) {
-        svgAdd(svg, 'circle', { cx: X(p2x), cy: Y(p2y), r: 6, fill: '#AA78FF' });
-        svgAdd(svg, 'text', { x: X(p2x) + 8, y: Y(p2y) + 16, 'font-size': 11, fill: '#AA78FF', 'font-family': 'monospace' }, '(' + U.fmtDec(p2x, 2).replace(/,?0+$/, '') + '; ' + U.fmtDec(gx, 1).replace(',0', '') + ')');
-        /* соединительные линии через y=x */
-        svgAdd(svg, 'line', { x1: X(p1x), y1: Y(p1y), x2: X(p2x), y2: Y(p2y), stroke: 'rgba(200,255,86,.7)', 'stroke-width': 1.2, 'stroke-dasharray': '3 3' });
-        if (p1y <= XMAX && p1y <= YMAX) {
-          svgAdd(svg, 'circle', { cx: X(p1y), cy: Y(p1y), r: 3, fill: '#C8FF56' });
+        if (a === 1) {
+          fbox(box, {
+            t: 'log₁(' + bs + ') — ОТКАЗ',
+            l: ['1 в любой степени — 1: получить ' + bs + ' нельзя', 'а для аргумента 1 подошли бы все степени', 'условие: [[ok:a ≠ 1]]']
+          });
+          continue;
         }
+        if (b <= 0) {
+          fbox(box, {
+            t: 'log_' + as.replace('−', '\u208B').replace('10', '₁₀').replace('2', '₂').replace('3', '₃') + '(' + bs + ') — ОТКАЗ',
+            l: ['аргумент ' + bs + ' ≤ 0: степенью положительного основания', 'нельзя получить ни 0, ни отрицательное число', 'условие: [[ok:b > 0]]']
+          });
+          continue;
+        }
+        var x = Math.log(b) / Math.log(a);
+        var aLg = fmt4(Math.log10(a)), bLg = fmt4(Math.log10(b));
+        var lines = [
+          'log_' + as + '(' + bs + ') = lg(' + bs + ') / lg(' + as + ')',
+          '             = ' + bLg + ' / ' + aLg + ' = [[ok:' + fmtX(x) + ']]'
+        ];
+        if (b === 1) lines.splice(1, 1, '             = 0 / ' + aLg + ' = [[ok:0]]   (любое основание⁰ = 1)');
+        var back = Math.pow(a, x);
+        var backStr = Math.abs(back - Math.round(back)) < 1e-9 && Math.abs(back) < 1e15
+          ? nb(Math.round(back)) : back.toPrecision(6).replace('.', ',');
+        lines.push('');
+        lines.push('проверка: ' + as + ' ^ ' + fmtX(x) + ' ≈ ' + backStr + ' [[ok:✓]]');
+        if (Math.abs(x - Math.round(x)) < 1e-9) {
+          lines.push('то есть ' + as + ' в степени ' + fmtX(x) + ' — это ' + bs);
+        }
+        fbox(box, { t: 'РЕЗУЛЬТАТ', l: lines });
+        api.scroll();
       }
-    }
-    rng.addEventListener('input', draw);
-    draw();
-    api.done();
-  }
-
-  /* ---------- Логарифмическая шкала ---------- */
-  function buildScale(box, api) {
-    var card = U.el('div', 'card scale-wrap');
-    card.innerHTML =
-      '<div class="field"><label for="mixR">Шкала: <b style="color:var(--blue)">линейная</b> ⟶ <b style="color:var(--lime)">логарифмическая</b></label>' +
-      '<input id="mixR" type="range" min="0" max="1" step="0.02" value="0"></div>' +
-      '<div id="scaleSvg"></div>' +
-      '<p class="muted" style="font-size:14px;margin:10px 0 0">На линейной шкале 100 000 прижата к правому краю, а 547 почти сливается с нулём. Логарифмическая шкала превращает <b>отношения</b> в равные расстояния: 1→10 такое же, как 10 000→100 000. Поэтому она удобна для огромных диапазонов — от 0,0001 до 100 000 она умещает всё с одинаковым вниманием к порядкам.</p>';
-    box.appendChild(card);
-    var svgBox = card.querySelector('#scaleSvg');
-    var rng = card.querySelector('#mixR');
-    var ticks = [1, 10, 100, 1000, 10000, 100000];
-    var pts = [{ v: 547, lbl: '547' }, { v: 65536, lbl: '2¹⁶ = 65 536' }];
-
-    function draw() {
-      var m = parseFloat(rng.value);
-      var W = 640, H = 150, padL = 30, padR = 30, y1 = 58, y2 = 106;
-      var lin = function (v) { return padL + v / 100000 * (W - padL - padR); };
-      var log = function (v) { return padL + Math.log10(v) / 5 * (W - padL - padR); };
-      var P = function (v) { return U.lerp(lin(v), log(v), m); };
-      svgBox.innerHTML = '';
-      var svg = document.createElementNS(NS, 'svg');
-      svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
-      svg.setAttribute('role', 'img');
-      svg.setAttribute('aria-label', 'Плавное преобразование линейной шкалы в логарифмическую');
-      svgBox.appendChild(svg);
-      svgAdd(svg, 'line', { x1: padL, y1: y1, x2: W - padR, y2: y1, stroke: 'rgba(139,143,158,.5)' });
-      ticks.forEach(function (v) {
-        var x = P(v);
-        svgAdd(svg, 'line', { x1: x, y1: y1 - 10, x2: x, y2: y1 + 10, stroke: v === 1 || v === 100000 ? '#F3F3ED' : '#6C8CFF', 'stroke-width': v === 1 || v === 100000 ? 2.5 : 1.5 });
-        svgAdd(svg, 'text', { x: x, y: y1 - 16, 'font-size': 11, fill: '#898F9E', 'text-anchor': 'middle', 'font-family': 'monospace' }, U.fmtInt(v));
-      });
-      pts.forEach(function (p) {
-        var x = P(p.v);
-        svgAdd(svg, 'circle', { cx: x, cy: y2, r: 7, fill: '#FF945E' });
-        svgAdd(svg, 'text', { x: Math.min(Math.max(x, 60), W - 90), y: y2 + 24, 'font-size': 12, fill: '#FF945E', 'text-anchor': 'middle', 'font-family': 'monospace' }, p.lbl);
-        svgAdd(svg, 'line', { x1: x, y1: y2 - 7, x2: x, y2: y1 + 10, stroke: 'rgba(255,148,94,.4)', 'stroke-dasharray': '3 3' });
-      });
-      svgAdd(svg, 'text', { x: padL, y: y2 + 6, 'font-size': 11, fill: '#898F9E', 'font-family': 'monospace' }, m < 0.5 ? 'линейная: равные шаги = равные разности' : 'логарифмическая: равные шаги = равные отношения');
-    }
-    rng.addEventListener('input', draw);
-    draw();
-    api.done();
+      done();
+    })();
   }
 
   /* ---------- Мини-контроль ---------- */
-  var LAB_QUIZ = [
-    { q: 'log₂(16) = ?', opts: ['4', '16', '2', '8'], correct: 0,
-      whys: {
-        0: 'Верно: 2⁴ = 16.',
-        1: 'Вы перепутали аргумент и результат: вопрос не «чему равно 2ⁿ», а «в какую степень возвести 2, чтобы получить 16».',
-        2: '2 — это log₄(16). Основание здесь 2.',
-        3: '8 = 2³, это log₂(8). Для 16 ответ 4.'
-      } },
-    { q: 'lg(10 000) = ?', opts: ['3', '4', '5', '100'], correct: 1,
-      whys: {
-        0: 'lg(1000) = 3. У 10 000 уже четыре нуля.',
-        1: 'Верно: 10⁴ = 10 000, значит lg = 4.',
-        2: '10⁵ = 100 000 — на один порядок больше.',
-        3: '100 — это само число нулей? Нет: lg отвечает на «в какую степень возвести 10», это 4.'
-      } },
-    { q: 'Сколько цифр в числе 2³⁰?', opts: ['9', '10', '30', '31'], correct: 1,
-      whys: {
-        0: '9 цифр у 2²⁹ ≈ 536 млн? Проверьте: 2³⁰ = 1 073 741 824 — это 10 цифр.',
-        1: 'Верно: 2³⁰ = 1 073 741 824 → ⌊30·0,30103⌋+1 = ⌊9,03⌋+1 = 10 цифр.',
-        2: '30 — это показатель степени, а не количество цифр.',
-        3: '31 цифра была у 2¹⁰⁰, а у 2³⁰ — 10.'
-      } },
-    { q: 'Существует ли log₅(0)?', opts: ['да, он равен 0', 'да, он равен 1', 'нет', 'иногда'], correct: 2,
-      whys: {
-        0: '5⁰ = 1, а не 0. Ноль степенью не получается.',
-        1: '5¹ = 5. Ноль недостижим.',
-        2: 'Верно: b > 0 — ноль нельзя получить действительной степенью положительного основания.',
-        3: 'Никогда: степени 5 всегда строго положительны.'
-      } },
-    { q: 'Вклад 12% годовых, начисление раз в год. Через сколько лет сумма впервые превысит вдвое?', opts: ['6', '6,12', '7', '12'], correct: 2,
-      whys: {
-        0: 'После 6 лет 1,12⁶ ≈ 1,974 < 2 — ещё чуть-чуть.',
-        1: '6,12 — это точное значение log₁,₁₂(2). Но начисление раз в год: внутри шестого года деньги не удвоились.',
-        2: 'Верно: log₁,₁₂(2) ≈ 6,12, но целые годы: после 7 лет 1,12⁷ ≈ 2,21 > 2.',
-        3: '12 — это ставка, а не срок.'
-      } }
-  ];
-
-  function buildLabQuiz(box, api) {
-    var wrap = U.el('div', 'quiz');
-    var scoreEl = U.el('p', 'muted center');
-    box.appendChild(wrap);
-    box.appendChild(scoreEl);
-    var answered = 0, correct = 0, total = LAB_QUIZ.length;
-    LAB_QUIZ.forEach(function (qz, qi) {
-      var q = U.el('div', 'q');
-      q.innerHTML = '<h3>' + (qi + 1) + '. ' + qz.q + '</h3><div class="opts"></div><p class="why" aria-live="polite"></p>';
-      var opts = q.querySelector('.opts');
-      var why = q.querySelector('.why');
-      qz.opts.forEach(function (o, oi) {
-        var b = U.el('button', null, o);
-        b.type = 'button';
-        b.addEventListener('click', function () {
-          if (q.dataset.done) return;
-          q.dataset.done = '1';
-          answered++;
-          var isOk = oi === qz.correct;
-          if (isOk) { b.classList.add('ok'); correct++; }
-          else {
-            b.classList.add('err');
-            opts.children[qz.correct].classList.add('ok');
-          }
-          why.innerHTML = qz.whys[oi];
-          why.classList.add('show');
-          scoreEl.innerHTML = 'Пройдено ' + answered + '/' + total + ' · верно ' + correct;
-          if (answered >= total) {
-            api.done();
-            api.speak('Мини-контроль завершён: ' + correct + ' из ' + total + '. Возвращайтесь к эпизодам, если что-то осталось непонятным.');
-          }
-        });
-        opts.appendChild(b);
-      });
-      wrap.appendChild(q);
-    });
-    scoreEl.textContent = 'Пройдено 0/' + total;
-    api.lock('Ответьте на все вопросы мини-контроля');
+  function task(prompt, opts, fail) {
+    return {
+      choice: {
+        prompt: prompt,
+        opts: opts.map(function (o) {
+          return { t: o[0], ok: !!o[1], wrong: o[2], formula: o[3] };
+        }),
+        fail: fail
+      }
+    };
   }
 
-  LOG.register({
+  TERM.register({
     id: 'lab',
     label: 'ТРЕНАЖЁР',
     bonus: true,
-    title: 'Интерактивный тренажёр',
-    steps: [
+    title: 'СВОБОДНЫЙ РЕЖИМ',
+    beats: [
+      { sys: 'ТРЕНАЖЁР · СВЯЗЬ ЗАМКНУТА НА САМОГО СЕБЯ · АБОНЕНТ 07 МОЛЧИТ', center: true },
+      { say: 'Свободный режим: калькулятор с разбором отказов, график 2ˣ и log₂(x), превращение шкалы и контрольная на пять задач. Ответы — только выбором из меню.' },
+      { ab: 'Последнее слово всё-таки моё. Тренажёр — это я, оставленный в проводах. Пользуйтесь. Я не устаю.' },
+
+      { ab: 'Калькулятор. Основание — из первого меню, аргумент — из второго. Попробуйте и честные пары, и сломанные: на отказах я объясню каждое условие.' },
+      { anim: calcAnim },
+      { ab: 'Достаточно. Дальше — картинки.' },
+
+      { ab: 'График. Экспонента и логарифм — одно и то же зеркало с двух сторон. Точки @ — связанные: (2;4) и (4;2), координаты поменялись местами.' },
+      { anim: A.graph },
       {
-        text: 'Тренажёр: калькулятор логарифмов с проверкой и объяснением ошибок, графики экспоненты и логарифма с зеркальной симметрией, превращение линейной шкалы в логарифмическую и мини-контроль из пяти задач. Экспериментируйте свободно.',
-        nextLabel: 'Калькулятор →',
-        build: function (box, api) {
-          var wrap = U.el('div', 'row row--center');
-          wrap.innerHTML =
-            '<span class="chip chip--blue">🧮 калькулятор</span>' +
-            '<span class="chip chip--violet">📊 графики</span>' +
-            '<span class="chip">📏 шкала</span>' +
-            '<span class="chip chip--lime">✅ контроль</span>';
-          box.appendChild(wrap);
-          api.done();
+        f: {
+          t: 'СИММЕТРИЯ',
+          l: [
+            'y = 2ˣ проходит через (2; 4)',
+            'y = log₂(x) проходит через (4; 2)',
+            'обе кривые зеркальны относительно [[ok:y = x]]'
+          ]
         }
       },
+
+      { ab: 'Шкала. Линейная жмёт всё огромное в правый край. Логарифмическая — раскладывает по порядкам: шаг ×10 везде одинаков.' },
+      { anim: A.rulers },
+      { say: 'На линейной шкале 547 неразличим возле нуля. На логарифмической он на видном месте — между 100 и 1000. Так «работают» децибелы, магнитуды и осциллографы.' },
+
+      { ab: 'И контрольная. Пять задач. Разбор промахов — как в первый вечер.' },
+
+      task('1 из 5 — log₂(64) = ?', [
+        ['6', true],
+        ['32', false, 'Тридцать два — это 2⁵, и это log₂(32). Но спросили про шестьдесят четыре: умножайте дальше — 32 · 2.', { t: 'ПО-ДРУГОМУ', l: ['2⁵ = 32', '2⁶ = 64  ← [[ok:6]]'] }],
+        ['8', false, 'Восемь — 2³. Путаете аргумент с ответом. Считайте множители: 2 · 2 · 2 · 2 · 2 · 2 — их шесть.'],
+        ['5', false, 'Пять — до шестидесяти четырёх не хватает: 2⁵ = 32. Ещё одно умножение — и на месте.']
+      ], 'Разбор: 2 · 2 · 2 · 2 · 2 · 2 = 64 → log₂(64) = 6.'),
+
+      task('2 из 5 — Сколько вопросов нужно, чтобы угадать число от 1 до 100 000?', [
+        ['17', true],
+        ['16', false, 'Шестнадцать различает только 65 536 вариантов — до ста тысяч не дотягивает. Нужен перешагивающий шаг: 2¹⁷ = 131 072.', { t: 'ПО-ДРУГОМУ', l: ['2¹⁶ = 65 536 < 100 000', '2¹⁷ = 131 072 ≥ 100 000  → [[ok:17]]'] }],
+        ['20', false, 'Двадцать — это для миллиона. Наше поле в десять раз меньше: ⌈log₂(100 000)⌉ = ⌈16,61⌉ = 17.'],
+        ['98', false, 'Девяносто восемь — сколько вариантов остаётся после десяти вопросов, а не сколько вопросов нужно. Считайте степени двойки.']
+      ], 'Разбор: ⌈log₂(100 000)⌉ = ⌈16,61⌉ = 17 вопросов.'),
+
+      task('3 из 5 — Сколько цифр у числа 2⁵⁰?', [
+        ['16', true],
+        ['15', false, 'Пятнадцать цифр было бы у чисел до 10¹⁵−1. Считайте: 50 · 0,301 = 15,05 — уже за пятнадцатым разрядом, значит шестнадцать.', { t: 'ПО-ДРУГОМУ', l: ['⌊50 · 0,301⌋ + 1 = ⌊15,05⌋ + 1 = [[ok:16]]'] }],
+        ['50', false, 'Пятьдесят — показатель, а не разряды. Цифр — по логарифму: 50 · lg 2 ≈ 15. Плюс один.'],
+        ['17', false, 'Семнадцать цифр — у 2⁵⁵. У 2⁵⁰ — на одну меньше: ⌊15,05⌋ + 1 = 16.']
+      ], 'Разбор: ⌊50 · lg 2⌋ + 1 = ⌊15,05⌋ + 1 = 16 цифр (2⁵⁰ ≈ 1,13 × 10¹⁵).'),
+
+      task('4 из 5 — Существует ли log₅(0)?', [
+        ['нет', true],
+        ['да, он равен 0', false, 'Ноль — это log₅(1): пять в нулевой степени. А чтобы вышло 0, нужно 5ˣ = 0 — таких степеней не существует: 5ˣ всегда строго положительно.', { t: 'ПО-ДРУГОМУ', l: ['5⁰ = 1, 5¹ = 5, 5ˣ > 0 всегда', 'ноль недостижим → [[ok:не существует]]'] }],
+        ['да, он равен 1', false, 'Единица — это log₅(5). А ноль степенью пятёрки не получить вовсе.'],
+        ['иногда', false, 'Никогда: условие b > 0 нарушено сразу и безоговорочно — ноль не достигается никакой действительной степенью.']
+      ], 'Разбор: 5ˣ > 0 при любом x — ноль недостижим, log₅(0) не существует.'),
+
+      task('5 из 5 — lg(100 000) = ?', [
+        ['5', true],
+        ['4', false, 'Четыре — это lg(10 000): четыре нуля. У сотни тысяч нулей пять — и это ровно 10⁵.', { t: 'ПО-ДРУГОМУ', l: ['10⁴ = 10 000', '10⁵ = 100 000  → [[ok:5]]'] }],
+        ['6', false, 'Шесть — это КОЛИЧЕСТВО ЦИФР у 100 000 (по правилу ⌊lg⌋+1). А сам логарифм равен пяти.'],
+        ['50', false, 'Пятьдесят — сбивает «10» и «000». Просто считайте нули: пять нулей — десять в пятой.']
+      ], 'Разбор: 100 000 = 10⁵ → lg(100 000) = 5. А цифр у него шесть: ⌊5⌋ + 1.')
+      ,
+      { ab: 'Пять из пяти — и я молчу дальше. Может, и не молчу. Запомните только одно: в какую степень?' },
+      { sys: 'ТРЕНАЖЁР ЗАВЕРШЁН · АП-2 ПЕРЕХОДИТ В ОЖИДАНИЕ', center: true },
       {
-        text: 'Калькулятор: введите основание и аргумент — сайт покажет результат, объяснит смысл и проверит его обратной операцией. Недопустимые значения не пройдут: сайт объяснит, почему именно не существует такой логарифм.',
-        nextLabel: 'Графики →',
-        build: buildCalc
-      },
-      {
-        text: 'Графики: экспонента y = aˣ и логарифм y = logₐ(x) зеркальны относительно прямой y = x. Двигайте точку x и смотрите на пару: если на экспоненте точка (x, aˣ), то на логарифме ей отвечает (aˣ, x) — координаты меняются местами. Переключайте основание.',
-        nextLabel: 'Шкала →',
-        build: buildGraphs
-      },
-      {
-        text: 'Шкала: двигайте ползунок — линейная шкала плавно превращается в логарифмическую. Равные отношения величин становятся равными расстояниями, и огромные диапазоны умещаются целиком.',
-        nextLabel: 'Мини-контроль →',
-        build: buildScale
-      },
-      {
-        text: 'Мини-контроль: пять задач разного уровня. За каждым неверным ответом — объяснение, какую мысль вы перепутали и как рассуждать правильно.',
-        nextLabel: 'В начало путешествия →',
-        build: buildLabQuiz
+        ask: {
+          prompt: 'Куда направимся теперь?',
+          opts: [
+            { t: 'ПЕРЕЧИТАТЬ ИСТОРИЮ СНАЧАЛА ▸', ok: true },
+            { t: 'ОСТАТЬСЯ В ТРЕНАЖЁРЕ', ok: true }
+          ],
+          onPick: function (i) {
+            if (i === 0) TERM.runSession(0);
+            else TERM.api.sys('ТРЕНАЖЁР ПЕРЕЗАПУЩЕН.');
+          }
+        }
       }
     ]
   });

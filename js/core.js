@@ -1,557 +1,448 @@
 'use strict';
 /* ============================================================
-   LOGARITHM — ядро: утилиты, формулы, фон, движок эпизодов.
-   Глобальное пространство имён LOG (классические скрипты —
-   работает и с file://, и с GitHub Pages).
+   LOGARITHM · АП-2 — движок терминальной переписки.
+   Советская ЭВМ, ЭЛТ-терминал, неизвестный абонент.
+   Типы битов сеанса:
+     {sys} система мгновенно   {say} машина печатает   {ab} абонент печатает
+     {me} реплика пользователя {big} крупная строка    {err} ошибка линии
+     {f} рамка с формулой      {anim} ASCII-анимация   {pause} пауза
+     {clear} очистка экрана    {glitch} помехи         {choice} выбор с разбором ошибок
+   Ответ пользователя — всегда выбор из вариантов.
    ============================================================ */
-window.LOG = window.LOG || {};
+window.TERM = window.TERM || {};
 
 (function () {
   var U = {
-    el: function (tag, cls, html) {
-      var e = document.createElement(tag);
-      if (cls) e.className = cls;
-      if (html != null) e.innerHTML = html;
-      return e;
-    },
-    $: function (id) { return document.getElementById(id); },
-    NBSP: '\u00A0',
-    /* 1000000 -> "1 000 000" */
-    fmtInt: function (n) {
-      var neg = n < 0; n = Math.abs(Math.round(n));
-      var s = String(n).replace(/\B(?=(\d{3})+(?!\d))/g, U.NBSP);
-      return (neg ? '\u2212' : '') + s;
-    },
-    /* 19.9315686 -> "19,93" */
-    fmtDec: function (x, d) {
-      if (d == null) d = 2;
-      var s = x.toFixed(d);
-      if (d > 0) s = s.replace(/0+$/, '').replace(/\.$/, '');
-      return s.replace('.', ',');
-    },
-    fmtSigned: function (n) { return (n < 0 ? '\u2212' : '') + U.fmtInt(Math.abs(n)); },
-    fmtMoney: function (n) { return U.fmtInt(Math.round(n)) + U.NBSP + '₽'; },
-    /* "3", "-3", "0,5", "1/2" -> число или NaN */
-    parseNum: function (s) {
-      if (typeof s !== 'string') return NaN;
-      s = s.trim().replace(/,/g, '.').replace(/\s+/g, '');
-      var m = s.match(/^(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)$/);
-      if (m) { var a = +m[1], b = +m[2]; return b === 0 ? NaN : a / b; }
-      if (!/^-?(\d+\.?\d*|\.\d+)$/.test(s)) return NaN;
-      return parseFloat(s);
-    },
     clamp: function (v, a, b) { return Math.max(a, Math.min(b, v)); },
-    lerp: function (a, b, t) { return a + (b - a) * t; },
-    esc: function (s) {
-      return String(s).replace(/[&<>"]/g, function (c) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    rnd: function (a, b) { return a + Math.random() * (b - a); },
+    repeat: function (s, n) { return new Array(Math.max(0, Math.round(n)) + 1).join(s); },
+    /* ширина строки без разметки */
+    plain: function (s) { return String(s).replace(/\[\[(?:amb|ok|dim|err):([^\]]*)\]\]/g, '$1'); },
+    /* разметка [[ok:...]] -> span */
+    mk: function (s) {
+      return String(s).replace(/\[\[(amb|ok|dim|err):([^\]]*)\]\]/g, function (_, c, t) {
+        return '<span class="' + c + '">' + t + '</span>';
       });
     },
-    sup: function (t) { return '<sup>' + t + '</sup>'; },
-    sub: function (t) { return '<sub>' + t + '</sub>'; }
-  };
-  LOG.U = U;
-
-  /* Цветовая система формул: a — синий, b — оранжевый, x — фиолетовый, результат — салатовый */
-  var F = {
-    base: function (t) { return '<span class="c-base">' + t + '</span>'; },
-    arg: function (t) { return '<span class="c-arg">' + t + '</span>'; },
-    exp: function (t) { return '<span class="c-exp">' + t + '</span>'; },
-    res: function (t) { return '<span class="c-res">' + t + '</span>'; },
-    pow: function (a, x) { return F.base(a) + '<sup>' + F.exp(x) + '</sup>'; },
-    log: function (a, b) { return 'log' + U.sub(F.base(a)) + F.arg(b); },
-    eq: '\u00A0=\u00A0',
-    fraq: function (num, den) { return '<span class="fraq"><b>' + num + '</b>' + den + '</span>'; }
-  };
-  LOG.F = F;
-
-  /* ------- Движение: уважение к prefers-reduced-motion ------- */
-  LOG.motion = {
-    reduced: !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
-  };
-  if (window.matchMedia) {
-    var mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-    var onMq = function () { LOG.motion.reduced = mq.matches; };
-    if (mq.addEventListener) mq.addEventListener('change', onMq); else if (mq.addListener) mq.addListener(onMq);
-  }
-
-  /* ------- Единый rAF-драйвер: пауза вне видимой вкладки ------- */
-  LOG.loops = (function () {
-    var items = new Set(), running = false, raf = 0, last = 0;
-    function tick(t) {
-      raf = requestAnimationFrame(tick);
-      var dt = Math.min(50, t - last || 16); last = t;
-      items.forEach(function (fn) {
-        try { fn(dt, t); } catch (e) { console.error('[loop]', e); items.delete(fn); }
-      });
-      if (!items.size) { stop(); }
+    visLen: function (s) { return U.plain(s).length; },
+    pad: function (s, w) {
+      s = U.plain(s);
+      return s.length >= w ? s.slice(0, w) : s + U.repeat(' ', w - s.length);
     }
-    function start() {
-      if (running || LOG.motion.reduced || document.hidden || !items.size) return;
-      running = true; last = performance.now(); raf = requestAnimationFrame(tick);
-    }
-    function stop() { running = false; cancelAnimationFrame(raf); }
-    function add(fn) { items.add(fn); start(); return fn; }
-    function remove(fn) { items.delete(fn); if (!items.size) stop(); }
-    document.addEventListener('visibilitychange', function () {
-      if (document.hidden) stop(); else start();
-    });
-    return { add: add, remove: remove, start: start, get size() { return items.size; } };
-  })();
+  };
+  TERM.U = U;
 
-  /* ------- Пересчет размеров канвасов ------- */
-  LOG.resizers = new Set();
-  window.addEventListener('resize', function () { LOG.resizers.forEach(function (f) { try { f(); } catch (e) {} }); });
-  window.addEventListener('orientationchange', function () { setTimeout(function () { LOG.resizers.forEach(function (f) { try { f(); } catch (e) {} }); }, 150); });
-
-  /* ------- Хелпер канваса сцены ------- */
-  LOG.canvas = function (box, opts) {
-    opts = opts || {};
-    var cv = U.el('canvas', 'scene-canvas');
-    cv.setAttribute('aria-hidden', 'true');
-    cv.setAttribute('role', 'img');
-    if (opts.alt) cv.setAttribute('aria-label', opts.alt);
-    box.appendChild(cv);
-    var ctx = cv.getContext('2d');
-    var st = { cv: cv, ctx: ctx, w: 0, h: 0, dpr: 1, draw: null, height: opts.height || 300 };
-    function resize() {
-      var w = box.clientWidth || 600;
-      var h = typeof st.height === 'function' ? st.height(w) : st.height;
-      st.dpr = Math.min(window.devicePixelRatio || 1, 2);
-      cv.style.width = w + 'px';
-      cv.style.height = h + 'px';
-      cv.width = Math.max(1, Math.round(w * st.dpr));
-      cv.height = Math.max(1, Math.round(h * st.dpr));
-      st.w = w; st.h = h;
-      ctx.setTransform(st.dpr, 0, 0, st.dpr, 0, 0);
-      if (st.draw) st.draw();
-    }
-    st.resize = resize;
-    st.off = function () { LOG.resizers.delete(resize); };
-    resize();
-    LOG.resizers.add(resize);
-    return st;
+  var eps = [];
+  TERM.register = function (ep) {
+    ep.label = ep.label || ('СЕАНС ' + String(eps.length + 1).padStart(2, '0'));
+    eps.push(ep);
   };
 
-  /* ------- Мягкое зерно ------- */
-  function addGrain() {
-    if (LOG.motion.reduced) return;
-    document.body.appendChild(U.el('div', 'grain'));
+  var el = {};
+  var st = {
+    cur: -1, token: 0, started: false,
+    skip: false,            // «ускорить» текущую печать/паузу
+    choiceOpen: false
+  };
+
+  function save() {
+    try { localStorage.setItem('termlog.progress.v1', JSON.stringify({ e: st.cur })); } catch (e) {}
+  }
+  function load() {
+    try { return JSON.parse(localStorage.getItem('termlog.progress.v1') || 'null'); } catch (e) { return null; }
   }
 
-  /* ------- Настройки ------- */
-  LOG.settings = { voiceOn: true, subs: true, rate: 1, voiceURI: '' };
-  function loadSettings() {
-    try {
-      var s = JSON.parse(localStorage.getItem('logarithm.settings.v1') || 'null');
-      if (s) Object.assign(LOG.settings, s);
-    } catch (e) {}
+  function scroll() {
+    var f = el.feed;
+    if (f) f.scrollTop = f.scrollHeight;
   }
-  function saveSettings() {
-    try { localStorage.setItem('logarithm.settings.v1', JSON.stringify(LOG.settings)); } catch (e) {}
-  }
-  LOG.saveSettings = saveSettings;
+  TERM.scroll = scroll;
 
-  /* ------- Субтитры ------- */
-  LOG.subtitle = {
-    el: null,
-    init: function () { this.el = U.$('subtitle'); },
-    show: function (t) {
-      if (!this.el) return;
-      if (!LOG.settings.subs) return;
-      this.el.innerHTML = t;
-      this.el.hidden = false;
-    },
-    hide: function () { if (this.el) this.el.hidden = true; }
-  };
-
-  /* ==================== ДВИЖОК ЭПИЗОДОВ ==================== */
-  var engine = {
-    eps: [], cur: -1, step: 0,
-    unlocked: true,
-    cleanups: [],
-    els: {},
-    started: false
-  };
-
-  engine.register = function (ep) {
-    ep.label = ep.label || ('ЭПИЗОД ' + String(engine.eps.length + 1).padStart(2, '0'));
-    engine.eps.push(ep);
-  };
-
-  function runCleanups() {
-    engine.cleanups.forEach(function (f) { try { f(); } catch (e) {} });
-    engine.cleanups = [];
+  function line(cls, who) {
+    var root = document.createElement('div');
+    root.className = 'ln ' + cls;
+    var html = '';
+    if (who) html += '<span class="who">' + who + ' ▸ </span>';
+    html += '<span class="txt"></span>';
+    root.innerHTML = html;
+    el.feed.appendChild(root);
+    scroll();
+    var txt = root.querySelector('.txt');
+    return { root: root, txt: txt };
   }
 
-  function cleanupAll() {
-    runCleanups();
-    LOG.loops.start(); // пересмотреть драйвер после удаления колбэков
+  function instant(cls, who, text) {
+    var l = line(cls, who);
+    l.txt.textContent = text;
+    scroll();
+    return l;
   }
 
-  engine.currentStep = function () {
-    var ep = engine.eps[engine.cur];
-    return ep ? ep.steps[engine.step] : null;
-  };
-  engine.currentStepText = function () {
-    var st = engine.currentStep();
-    return st && st.text ? st.text : '';
-  };
+  function consumeSkip() { var s = st.skip; st.skip = false; return s; }
 
-  engine.allowNext = function (v, hint) {
-    engine.unlocked = !!v;
-    var b = engine.els.btnNext;
-    if (b) b.setAttribute('aria-disabled', String(!v));
-    if (!v && hint) LOG.subtitle.show(hint);
-  };
-  engine.setNextLabel = function (t) {
-    var b = engine.els.btnNext;
-    if (!b) return;
-    t = String(t).replace(/\s*→\s*$/, ''); // стрелка добавляется единым элементом
-    b.innerHTML = U.esc(t) + '<span class="dock__lbl">→</span>';
-  };
-
-  /* ------------------ Рендер шага ------------------ */
-  engine.render = function () {
-    cleanupAll();
-    var ep = engine.eps[engine.cur];
-    var st = ep.steps[engine.step];
-    var stage = engine.els.stage;
-
-    var sec = U.el('section', 'episode');
-    sec.setAttribute('aria-label', ep.label + ' — ' + ep.title);
-    sec.appendChild(U.el('p', 'episode__kicker', ep.label));
-    var h2 = U.el('h2', 'episode__title', ep.title);
-    sec.appendChild(h2);
-
-    var box = U.el('div', 'step');
-    sec.appendChild(box);
-
-    stage.innerHTML = '';
-    stage.appendChild(sec);
-
-    if (st.text) {
-      var det = U.el('details', 'scene-text');
-      det.appendChild(U.el('summary', null, 'Текст сцены (для чтения)'));
-      det.appendChild(U.el('p', null, st.text));
-      sec.appendChild(det);
-    }
-
-    engine.unlocked = !st.lock;
-    engine.els.btnNext.setAttribute('aria-disabled', String(!engine.unlocked));
-    engine.setNextLabel(st.nextLabel || 'Дальше');
-
-    var api = {
-      stage: box,
-      done: function (hint) { engine.allowNext(true); if (hint) LOG.subtitle.show(hint); },
-      lock: function (hint) { engine.allowNext(false, hint); },
-      setNextLabel: function (t) { engine.setNextLabel(t); },
-      cleanup: function (fn) { engine.cleanups.push(fn); },
-      loop: function (fn) { var h = LOG.loops.add(fn); engine.cleanups.push(function () { LOG.loops.remove(h); }); return h; },
-      speak: function (t) { LOG.voice.say(t); }
-    };
-
-    try { st.build(box, api); }
-    catch (e) {
-      console.error('[step build]', e);
-      box.appendChild(U.el('p', 'feedback feedback--err', 'Ошибка загрузки сцены — подробности в консоли.'));
-    }
-
-    document.title = 'LOGARITHM — ' + ep.title;
-    engine.els.epIndicator.textContent = ep.label + ' · ' + ep.title;
-    renderProgress();
-    renderMenuState();
-
-    window.scrollTo(0, 0);
-    engine.save();
-
-    /* Озвучка шага: голосом (если включена) или субтитры целиком */
-    LOG.voice.stop();
-    LOG.subtitle.hide();
-    if (st.text) {
-      if (LOG.settings.voiceOn && LOG.voice.supported() && LOG.voice.canSpeak()) {
-        LOG.voice.say(st.text);
-      } else if (LOG.settings.subs) {
-        LOG.subtitle.show(st.text);
+  /* печать с эффектом телетайпа */
+  function type(l, text, speed) {
+    return new Promise(function (res) {
+      if (typeof text !== 'string') text = String(text);
+      var caret = document.createElement('span');
+      caret.className = 'caret';
+      l.root.appendChild(caret);
+      l.txt.textContent = '';
+      function finish() {
+        l.txt.textContent = text;
+        caret.remove();
+        scroll();
+        res();
       }
-    }
-  };
-
-  function renderProgress() {
-    var total = engine.eps.filter(function (e) { return !e.bonus; }).length;
-    var wrap = engine.els.progress;
-    wrap.innerHTML = '';
-    var ep = engine.eps[engine.cur];
-    for (var i = 0; i < total; i++) {
-      var seg = U.el('i');
-      var fill = 0;
-      if (engine.started) {
-        if (engine.cur > i) fill = 1;
-        else if (engine.cur === i) fill = ep.bonus ? 0 : (engine.step + 1) / ep.steps.length;
-      }
-      seg.style.setProperty('--fill', fill.toFixed(3));
-      wrap.appendChild(seg);
-    }
-    var pct = 0;
-    if (engine.started && !ep.bonus) {
-      pct = Math.round(((engine.cur + (engine.step + 1) / ep.steps.length) / total) * 100);
-    }
-    wrap.setAttribute('aria-valuenow', String(pct));
-    var lab = engine.eps.find(function (e) { return e.bonus; });
-    if (lab) {
-      var lastSeg = U.el('i');
-      lastSeg.style.setProperty('--fill', engine.started && ep.bonus ? '1' : '0');
-      lastSeg.title = 'Тренажёр';
-      wrap.appendChild(lastSeg);
-    }
-  }
-
-  function renderMenuState() {
-    var btns = engine.els.epMenuList.querySelectorAll('.pop__item');
-    btns.forEach(function (b, i) {
-      b.setAttribute('aria-current', String(i === engine.cur));
+      if (consumeSkip()) { finish(); return; }
+      var i = 0;
+      var chunk = speed <= 8 ? 2 : 1;
+      (function tick() {
+        if (consumeSkip()) { finish(); return; }
+        i += chunk;
+        if (i >= text.length) { finish(); return; }
+        l.txt.textContent = text.slice(0, i);
+        scroll();
+        setTimeout(tick, speed);
+      })();
     });
   }
 
-  /* ------------------ Навигация ------------------ */
-  engine.goTo = function (i, s, useFx) {
-    i = U.clamp(i, 0, engine.eps.length - 1);
-    var ep = engine.eps[i];
-    s = U.clamp(s == null ? 0 : s, 0, ep.steps.length - 1);
-    var isEpisodeSwitch = i !== engine.cur;
-    if (engine.cur === -1) engine.started = true;
-    engine.cur = i; engine.step = s;
-    if (isEpisodeSwitch && useFx !== false && !LOG.motion.reduced) {
-      LOG.fx.play(function () { engine.render(); });
-    } else {
-      if (engine.started) engine.els.stage.classList.add('stage--swap');
-      engine.render();
-      setTimeout(function () { engine.els.stage.classList.remove('stage--swap'); }, 450);
-    }
-  };
+  function wait(ms) {
+    return new Promise(function (res) {
+      if (consumeSkip()) { res(); return; }
+      var t0 = performance.now();
+      (function chk() {
+        if (st.skip || performance.now() - t0 >= ms) { consumeSkip(); res(); return; }
+        setTimeout(chk, 40);
+      })();
+    });
+  }
 
-  engine.next = function () {
-    if (!engine.started || engine.cur < 0) return; // док неактивен до закрытия интро
-    if (!engine.unlocked) {
-      var b = engine.els.btnNext;
-      b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake');
+  /* «АБОНЕНТ ПЕЧАТАЕТ…» */
+  var thinkEl = null;
+  function thinking() {
+    stopThinking();
+    thinkEl = instant('ln--sys', '', 'АБОНЕНТ ПЕЧАТАЕТ');
+    thinkEl.root.classList.add('thinking');
+  }
+  function stopThinking() {
+    if (thinkEl) { thinkEl.root.remove(); thinkEl = null; }
+  }
+
+  /* ---------- Рамки с формулами ---------- */
+  function frame(spec, cont) {
+    var arr = Array.isArray(spec) ? spec : spec.l;
+    var title = Array.isArray(spec) ? '' : (spec.t || '');
+    var inner = [];
+    if (title) inner.push(title);
+    arr.forEach(function (s) { inner.push(s); });
+    var w = 0;
+    inner.forEach(function (s) { w = Math.max(w, U.visLen(s)); });
+    w = Math.min(w, 70) + 2;
+    var out = ['┌' + U.repeat('─', w) + '┐'];
+    inner.forEach(function (s) { out.push('│ ' + U.pad(s, w - 2) + ' │'); });
+    out.push('└' + U.repeat('─', w) + '┘');
+    var pre = document.createElement('pre');
+    pre.className = 'blk blk--frame';
+    pre.innerHTML = U.mk(out.join('\n'));
+    (cont || el.feed).appendChild(pre);
+    scroll();
+    return pre;
+  }
+
+  /* ---------- Оверлей эффектов ---------- */
+  function crtClear() {
+    return new Promise(function (res) {
+      var fx = el.fx;
+      fx.className = 'on';
+      fx.innerHTML = '<div class="scan"></div>';
+      var scan = fx.firstChild;
+      var t0 = performance.now();
+      (function mv() {
+        var p = (performance.now() - t0) / 380;
+        if (p >= 1) {
+          fx.className = ''; fx.innerHTML = '';
+          el.feed.innerHTML = '';
+          scroll();
+          res();
+          return;
+        }
+        scan.style.top = (p * 100) + '%';
+        requestAnimationFrame(mv);
+      })();
+    });
+  }
+
+  async function glitchFx() {
+    var fx = el.fx;
+    fx.className = 'on noise';
+    var chars = '▓▒░█▄▀╬╪╫╗╔╠╣▚▞░▒▓';
+    var s = '';
+    for (var i = 0; i < 90; i++) s += chars[Math.floor(Math.random() * chars.length)];
+    var l = instant('ln--err', '', s);
+    await wait(340);
+    l.root.remove();
+    fx.className = '';
+    scroll();
+  }
+
+  /* ---------- Выборы ---------- */
+  function askRaw(spec) {
+    return new Promise(function (res) {
+      var prompt = el.prompt, box = el.choices;
+      st.choiceOpen = true;
+      prompt.hidden = !spec.prompt;
+      prompt.textContent = spec.prompt || '';
+      box.innerHTML = '';
+      box.classList.toggle('c-row', !!spec.row);
+      var btns = [];
+      spec.opts.forEach(function (o, i) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'chc' + (o.dim ? ' chc--dim' : '');
+        b.innerHTML = '<span class="key">[' + (i + 1) + ']</span>' + o.t;
+        b.addEventListener('click', function () { pick(i); });
+        box.appendChild(b);
+        btns.push(b);
+      });
+      st.keyboardMap = btns;
+      scroll();
+      function pick(i) {
+        if (!st.choiceOpen) return;
+        st.choiceOpen = false;
+        st.keyboardMap = [];
+        prompt.hidden = true;
+        box.innerHTML = '';
+        res(i);
+      }
+    });
+  }
+
+  /* выбор с драматургией ошибок: wrong → реплика абонента → вопрос заново;
+     flavor → реплика без счёта ошибок; после 3 промахов — fail-разбор и автоответ */
+  async function choice(spec) {
+    var attempts = 0;
+    var prompt = spec.prompt;
+    for (;;) {
+      var idx = await askRaw({ prompt: prompt, opts: spec.opts, row: spec.row });
+      var o = spec.opts[idx];
+      if (spec.echo !== false) instant('ln--me', 'ВЫ', o.t);
+      if (o.ok) return;
+      if (o.flavor != null) {
+        await wait(U.rnd(420, 900));
+        await sayAb(o.flavor);
+        if (o.formula) frame(o.formula);
+        if (o.retryPrompt) prompt = o.retryPrompt;
+        continue;
+      }
+      attempts++;
+      await wait(U.rnd(420, 900));
+      await sayAb(o.wrong || 'Не то. Попробуйте ещё раз — внимательно.');
+      if (o.formula) frame(o.formula);
+      if (attempts >= 3 && spec.fail) {
+        var okOpt = spec.opts.find(function (x) { return x.ok; });
+        await sayMach(spec.fail);
+        if (spec.echo !== false && okOpt) instant('ln--me', 'ВЫ', okOpt.t);
+        return;
+      }
+      if (o.retry) prompt = o.retry;
+      await wait(420);
+    }
+  }
+
+  function sayAb(text) {
+    var l = line('ln--ab', 'АБОНЕНТ');
+    return type(l, text, 15);
+  }
+  function sayMach(text) {
+    var l = line('ln--mach', 'СИСТЕМА');
+    return type(l, text, 9);
+  }
+
+  /* ---------- API для анимаций ---------- */
+  var api = {
+    feed: function () { return el.feed; },
+    scroll: scroll,
+    sayAb: sayAb,
+    sayMach: sayMach,
+    sys: function (t) { instant('ln--sys', '', t); },
+    err: function (t) { instant('ln--err', '', t); },
+    me: function (t) { instant('ln--me', 'ВЫ', t); },
+    big: async function (t) { var l = line('ln--big', ''); await type(l, t, 22); },
+    frame: function (spec, cont) { return frame(spec, cont); },
+    wait: wait,
+    askRaw: askRaw,
+    isSkip: function () { return st.skip; },
+    clearSkip: consumeSkip,
+    line: line,
+    U: U
+  };
+  TERM.api = api;
+
+  async function playBeat(b, tok) {
+    if (tok !== st.token) return;
+    if (b.sys != null) { instant('ln--sys' + (b.center ? ' center' : ''), '', b.sys); return; }
+    if (b.err != null) { instant('ln--err', '', b.err); return; }
+    if (b.me != null) { instant('ln--me', 'ВЫ', b.me); return; }
+    if (b.glitch) { await glitchFx(); return; }
+    if (b.clear) { await crtClear(); return; }
+    if (b.pause) { await wait(b.pause); return; }
+    if (b.ab != null) {
+      thinking();
+      await wait(U.rnd(380, 950));
+      if (tok !== st.token) return;
+      stopThinking();
+      var l1 = line('ln--ab', 'АБОНЕНТ');
+      await type(l1, b.ab, 15);
       return;
     }
-    var ep = engine.eps[engine.cur];
-    if (engine.step < ep.steps.length - 1) {
-      engine.step++;
-      engine.els.stage.classList.add('stage--swap');
-      engine.render();
-      setTimeout(function () { engine.els.stage.classList.remove('stage--swap'); }, 450);
-    } else if (engine.cur < engine.eps.length - 1) {
-      engine.goTo(engine.cur + 1, 0);
+    if (b.say != null) { await sayMach(b.say); return; }
+    if (b.big != null) { await api.big(b.big); return; }
+    if (b.f != null) { frame(b.f); await wait(600); return; }
+    if (b.anim) {
+      var box = document.createElement('pre');
+      box.className = 'blk blk--anim';
+      el.feed.appendChild(box);
+      scroll();
+      await new Promise(function (res) { b.anim(box, api, res); });
+      await wait(500);
+      return;
     }
-  };
+    if (b.choice) { await choice(b.choice); return; }
+    if (b.ask) { var i2 = await askRaw(b.ask); if (b.ask.onPick) b.ask.onPick(i2); return; }
+  }
 
-  engine.prev = function () {
-    if (!engine.started || engine.cur < 0) return;
-    if (engine.step > 0) {
-      engine.step--;
-      engine.els.stage.classList.add('stage--swap');
-      engine.render();
-      setTimeout(function () { engine.els.stage.classList.remove('stage--swap'); }, 450);
-    } else if (engine.cur > 0) {
-      engine.goTo(engine.cur - 1, engine.eps[engine.cur - 1].steps.length - 1);
+  async function runSession(i) {
+    i = U.clamp(i, 0, eps.length - 1);
+    st.cur = i;
+    st.token++;
+    var tok = st.token;
+    save();
+    renderHeader();
+    renderMenu();
+    el.prompt.hidden = true;
+    el.choices.innerHTML = '';
+    st.choiceOpen = false;
+    await crtClear();
+    var ep = eps[i];
+    for (var bi = 0; bi < ep.beats.length; bi++) {
+      if (tok !== st.token) return;
+      try { await playBeat(ep.beats[bi], tok); }
+      catch (e) { console.error('[beat]', bi, e); }
     }
-  };
+  }
+  TERM.runSession = runSession;
+  TERM.cur = function () { return st.cur; };
 
-  engine.restart = function () {
-    if (!engine.started || engine.cur < 0) return;
-    LOG.voice.stop();
-    engine.goTo(engine.cur, 0, false);
-    engine.els.stage.classList.add('stage--swap');
-    setTimeout(function () { engine.els.stage.classList.remove('stage--swap'); }, 450);
-  };
+  /* ---------- Шапка, прогресс, меню ---------- */
+  function renderHeader() {
+    var ep = eps[st.cur];
+    el.sess.textContent = ep.label + ' · ' + ep.title;
+    var pr = el.progress;
+    pr.innerHTML = '';
+    for (var i = 0; i < eps.length; i++) {
+      var seg = document.createElement('i');
+      if (eps[i].bonus) seg.className = 'lab';
+      if (st.started && i <= st.cur) seg.classList.add('on');
+      seg.title = eps[i].label;
+      pr.appendChild(seg);
+    }
+  }
 
-  /* ------------------ Сохранение ------------------ */
-  engine.save = function () {
-    try { localStorage.setItem('logarithm.progress.v1', JSON.stringify({ e: engine.cur, s: engine.step })); } catch (e) {}
-  };
-  engine.load = function () {
-    try { return JSON.parse(localStorage.getItem('logarithm.progress.v1') || 'null'); } catch (e) { return null; }
-  };
-
-  /* ------------------ Меню эпизодов ------------------ */
-  function buildMenu() {
-    var list = engine.els.epMenuList;
-    list.innerHTML = '';
-    engine.eps.forEach(function (ep, i) {
-      var b = U.el('button', 'pop__item');
+  function renderMenu() {
+    var pop = el.menu;
+    pop.innerHTML = '';
+    eps.forEach(function (ep, i) {
+      var b = document.createElement('button');
       b.type = 'button';
-      b.setAttribute('role', 'menuitem');
-      b.innerHTML = '<span class="num">' + ep.label + '</span><span>' + ep.title + '</span>';
-      b.addEventListener('click', function () { togglePop(null); engine.goTo(i, 0); });
-      list.appendChild(b);
-    });
-  }
-  function renderMenuStateSafe() {}
-
-  function togglePop(which) {
-    ['epMenu', 'settingsPop'].forEach(function (id) {
-      var el = U.$(id);
-      if (!el) return;
-      var show = which === id && el.hidden;
-      el.hidden = !show;
-      var btn = U.$(id === 'epMenu' ? 'btnMenu' : 'btnSettings');
-      if (btn) btn.setAttribute('aria-expanded', String(show));
+      b.className = 'mi';
+      b.setAttribute('aria-current', String(i === st.cur));
+      b.innerHTML = '<span class="n">' + ep.label + '</span><span>' + ep.title + '</span>';
+      b.addEventListener('click', function () {
+        pop.hidden = true;
+        el.menuBtn.setAttribute('aria-expanded', 'false');
+        runSession(i);
+      });
+      pop.appendChild(b);
     });
   }
 
-  /* ------------------ Фоновые частицы ------------------ */
-  function startBackground() {
-    var cv = U.$('bgCanvas');
-    var ctx = cv.getContext('2d');
-    var W = 0, H = 0, parts = [];
-    var COLORS = ['rgba(108,140,255,', 'rgba(170,120,255,', 'rgba(200,255,86,', 'rgba(243,243,237,'];
-    function build() {
-      W = cv.width = Math.round(innerWidth * Math.min(devicePixelRatio || 1, 1.5));
-      H = cv.height = Math.round(innerHeight * Math.min(devicePixelRatio || 1, 1.5));
-      ctx.setTransform(Math.min(devicePixelRatio || 1, 1.5), 0, 0, Math.min(devicePixelRatio || 1, 1.5), 0, 0);
-      var n = Math.min(130, Math.round(innerWidth * innerHeight / 16000));
-      parts = [];
-      for (var i = 0; i < n; i++) {
-        parts.push({
-          x: Math.random() * innerWidth,
-          y: Math.random() * innerHeight,
-          r: Math.random() * 1.6 + 0.4,
-          vx: (Math.random() - 0.5) * 8,
-          vy: (Math.random() - 0.5) * 8,
-          a: Math.random() * 0.35 + 0.08,
-          c: COLORS[Math.floor(Math.random() * COLORS.length)]
-        });
-      }
+  /* ---------- Загрузка ЭВМ ---------- */
+  async function bootSeq() {
+    var pre = document.getElementById('bootLines');
+    var rows = [
+      'БЭСМ-6 · ДИСПЛЕЙНЫЙ КОМПЛЕКС «РУБИН»',
+      'АБОНЕНТСКИЙ ПУНКТ АП-2 · ЛИНИЯ 07 · КАНАЛ 3',
+      '',
+      'ТЕСТ ЭЛТ ............. [[ok:НОРМА]]',
+      'ТЕСТ ЛИНИИ ........... [[ok:НОРМА]]',
+      'ТЕЛЕТАЙП ............. [[ok:ГОТОВ]]',
+      'ПОИСК АБОНЕНТА ....... [[err:НЕ ОПОЗНАН]]',
+      'ВХОДЯЩАЯ ПЕРЕДАЧА .... [[amb:03:17]]'
+    ];
+    var saved = load();
+    if (saved && saved.e >= 0 && saved.e < eps.length) {
+      rows.push('АРХИВ СЕАНСОВ ........ [[ok:ЕСТЬ]]');
     }
-    build();
-    LOG.resizers.add(build);
-    if (!LOG.motion.reduced) {
-      LOG.loops.add(function (dt) {
-        var s = dt / 1000;
-        ctx.clearRect(0, 0, innerWidth, innerHeight);
-        for (var i = 0; i < parts.length; i++) {
-          var p = parts[i];
-          p.x += p.vx * s; p.y += p.vy * s;
-          if (p.x < -5) p.x = innerWidth + 5; if (p.x > innerWidth + 5) p.x = -5;
-          if (p.y < -5) p.y = innerHeight + 5; if (p.y > innerHeight + 5) p.y = -5;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.r, 0, 6.2832);
-          ctx.fillStyle = p.c + p.a + ')';
-          ctx.fill();
-        }
-      });
-    } else {
-      // статичные точки без анимации
-      ctx.clearRect(0, 0, innerWidth, innerHeight);
-      parts.forEach(function (p) {
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832);
-        ctx.fillStyle = p.c + p.a + ')'; ctx.fill();
-      });
+    for (var i = 0; i < rows.length; i++) {
+      var div = document.createElement('div');
+      div.innerHTML = U.mk(rows[i]);
+      pre.appendChild(div);
+      await new Promise(function (r) { setTimeout(r, 130); });
     }
+    await new Promise(function (r) { setTimeout(r, 550); });
+    var boot = el.boot;
+    boot.classList.add('boot--off');
+    await new Promise(function (r) { setTimeout(r, 460); });
+    boot.hidden = true;
   }
 
-  /* ------------------ Запуск ------------------ */
-  engine.boot = function () {
-    loadSettings();
-    var E = {
-      stage: U.$('stage'), btnNext: U.$('btnNext'), btnPrev: U.$('btnPrev'),
-      btnPlay: U.$('btnPlay'), btnReplay: U.$('btnReplay'), btnRestart: U.$('btnRestart'),
-      btnMenu: U.$('btnMenu'), btnSettings: U.$('btnSettings'), btnPrevEp: U.$('btnPrevEp'), btnNextEp: U.$('btnNextEp'),
-      epIndicator: U.$('epIndicator'), progress: U.$('progress'), epMenuList: U.$('epMenuList')
+  TERM.boot = async function () {
+    el = {
+      boot: document.getElementById('boot'),
+      feed: document.getElementById('feed'),
+      deck: document.getElementById('deck'),
+      prompt: document.getElementById('choicePrompt'),
+      choices: document.getElementById('choices'),
+      sess: document.getElementById('sessLabel'),
+      progress: document.getElementById('sessProgress'),
+      menu: document.getElementById('menuPop'),
+      menuBtn: document.getElementById('btnMenu'),
+      fx: document.getElementById('fx'),
+      linkDot: document.getElementById('linkDot')
     };
-    engine.els = E;
-    LOG.subtitle.init();
-    addGrain();
-    startBackground();
-    buildMenu();
 
-    E.btnNext.addEventListener('click', function () { engine.next(); });
-    E.btnPrev.addEventListener('click', function () { engine.prev(); });
-    E.btnRestart.addEventListener('click', function () { engine.restart(); });
-    E.btnPlay.addEventListener('click', function () { LOG.voice.toggle(); });
-    E.btnReplay.addEventListener('click', function () { LOG.voice.repeat(); });
-    E.btnMenu.addEventListener('click', function () { togglePop('epMenu'); });
-    E.btnSettings.addEventListener('click', function () { togglePop('settingsPop'); });
-    E.btnPrevEp.addEventListener('click', function () { engine.goTo(engine.cur - 1, 0); });
-    E.btnNextEp.addEventListener('click', function () { engine.goTo(engine.cur + 1, 0); });
-    document.addEventListener('click', function (ev) {
-      if (!ev.target.closest('.pop') && !ev.target.closest('#btnMenu') && !ev.target.closest('#btnSettings')) togglePop(null);
+    /* клавиатура: цифры — выбор, пробел/Enter — ускорить печать */
+    document.addEventListener('keydown', function (e) {
+      if (e.key === ' ') { e.preventDefault(); st.skip = true; return; }
+      if (e.key === 'Enter') { st.skip = true; return; }
+      var n = parseInt(e.key, 10);
+      if (n >= 1 && n <= 9 && st.keyboardMap && st.keyboardMap[n - 1]) {
+        st.keyboardMap[n - 1].click();
+      }
     });
-    document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') togglePop(null); });
+    el.feed.addEventListener('click', function () { st.skip = true; });
 
-    /* Клавиатура */
-    document.addEventListener('keydown', function (ev) {
-      var t = ev.target;
-      var typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
-      if (typing || !engine.started) return;
-      if (ev.key === 'ArrowRight' && !ev.altKey) { engine.next(); }
-      else if (ev.key === 'ArrowLeft') { engine.prev(); }
-      else if (ev.key === 'r' || ev.key === 'R' || ev.key === 'к' || ev.key === 'К') { engine.restart(); }
-      else if (ev.key === ' ') { ev.preventDefault(); LOG.voice.toggle(); }
+    el.menuBtn.addEventListener('click', function () {
+      el.menu.hidden = !el.menu.hidden;
+      el.menuBtn.setAttribute('aria-expanded', String(!el.menu.hidden));
     });
+    document.addEventListener('click', function (e) {
+      if (!e.target.closest('#menuPop') && !e.target.closest('#btnMenu')) {
+        el.menu.hidden = true;
+        el.menuBtn.setAttribute('aria-expanded', 'false');
+      }
+    });
+    document.getElementById('btnPrevEp').addEventListener('click', function () { if (st.started) runSession(st.cur - 1); });
+    document.getElementById('btnNextEp').addEventListener('click', function () { if (st.started) runSession(st.cur + 1); });
+    document.getElementById('btnRestart').addEventListener('click', function () { if (st.started) runSession(st.cur); });
 
-    /* Настройки UI */
-    var chkVoice = U.$('chkVoice'), chkSubs = U.$('chkSubs'), rate = U.$('rateRange'), rateOut = U.$('rateOut'), voiceSel = U.$('voiceSel');
-    chkVoice.checked = LOG.settings.voiceOn;
-    chkSubs.checked = LOG.settings.subs;
-    rate.value = String(LOG.settings.rate);
-    rateOut.textContent = U.fmtDec(LOG.settings.rate, 2).replace(/,00$/, '') + '×';
-    chkVoice.addEventListener('change', function () {
-      LOG.settings.voiceOn = chkVoice.checked;
-      if (!LOG.settings.voiceOn) { LOG.voice.stop(); if (LOG.settings.subs) { var t = engine.currentStepText(); if (t) LOG.subtitle.show(t); } else LOG.subtitle.hide(); }
-      else { LOG.voice.repeat(); }
-      saveSettings();
-    });
-    chkSubs.addEventListener('change', function () {
-      LOG.settings.subs = chkSubs.checked;
-      if (!LOG.settings.subs) LOG.subtitle.hide();
-      else { var t = engine.currentStepText(); if (t && (!LOG.settings.voiceOn || !LOG.voice.speakingNow())) LOG.subtitle.show(t); }
-      saveSettings();
-    });
-    rate.addEventListener('input', function () {
-      LOG.settings.rate = parseFloat(rate.value);
-      rateOut.textContent = U.fmtDec(LOG.settings.rate, 2).replace(/,00$/, '') + '×';
-      saveSettings();
-    });
-    rate.addEventListener('change', function () { LOG.voice.repeat(); });
-    voiceSel.addEventListener('change', function () {
-      LOG.settings.voiceURI = voiceSel.value;
-      LOG.voice.refreshVoices();
-      saveSettings();
-      LOG.voice.repeat();
-    });
-
-    /* Жест пользователя — разрешение на озвучку */
-    LOG.voice.userActive = false;
-    var activate = function () { LOG.voice.userActive = true; };
-    document.addEventListener('pointerdown', activate, { once: true, capture: true });
-    document.addEventListener('keydown', activate, { once: true, capture: true });
-
-    /* Интро */
-    var intro = U.$('intro');
-    var saved = engine.load();
-    var btnStart = U.$('introStart'), btnCont = U.$('introContinue'), btnLab = U.$('introLab');
-    if (saved && saved.e >= 0 && engine.eps[saved.e] && !engine.eps[saved.e].bonus) {
-      btnCont.hidden = false;
-      btnCont.textContent = 'Продолжить с эпизода ' + String(saved.e + 1).padStart(2, '0');
-      btnCont.addEventListener('click', function () { closeIntro(); engine.goTo(saved.e, saved.s || 0); });
-    }
-    btnStart.addEventListener('click', function () { closeIntro(); engine.goTo(saved && saved.e >= 0 ? saved.e : 0, saved && saved.e >= 0 ? (saved.s || 0) : 0); });
-    btnLab.addEventListener('click', function () {
-      closeIntro();
-      var idx = engine.eps.findIndex(function (e) { return e.bonus; });
-      engine.goTo(idx < 0 ? 0 : idx, 0);
-    });
-    function closeIntro() { intro.classList.add('intro--off'); setTimeout(function () { intro.hidden = true; }, 650); }
-
-    LOG.voice.init();
-    engine.started = false;
+    renderMenu();
+    await bootSeq();
+    st.started = true;
+    var saved = load();
+    var start = (saved && saved.e >= 0 && saved.e < eps.length) ? saved.e : 0;
+    runSession(start);
   };
-
-  LOG.register = engine.register;
-  LOG.boot = function () { engine.boot(); };
-  LOG.engine = engine;
 })();
