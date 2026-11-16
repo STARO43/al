@@ -24,6 +24,7 @@
       <button id="btnRestart" class="tbtn tbtn--sq" title="Перезапустить сеанс" aria-label="Перезапустить сеанс">↺</button>
       <button id="btnPause" class="tbtn" title="Пауза сеанса [P]" aria-pressed="false">ПАУЗА</button>
       <button id="btnSound" class="tbtn tbtn--sq" title="Звук телетайпа" aria-label="Звук телетайпа" aria-pressed="false">ЗВУК</button>
+      <button id="btnFx" class="tbtn tbtn--sq" title="Эффекты ЭЛТ [F]" aria-pressed="true">FX</button>
     </div>
     <div id="sessLabel" class="sess-label">СЕАНС --</div>
     <div class="bar-right">
@@ -62,15 +63,27 @@
   </div>
 
   <footer id="deck">
-    <div id="hint" class="deck-hint">[1–9] — выбор · [пробел] — ускорить печать · [P] — пауза</div>
+    <div id="hint" class="deck-hint">[1–9] — выбор · [пробел] — ускорить печать · [P] — пауза · [F] — эффекты</div>
   </footer>
+
+  <!-- Кинетический слой: титры, крупные слова, плакаты -->
+  <div id="kinetic" aria-hidden="true"><div id="kineticStage"></div></div>
+
+  <!-- Оверлей эффектов: помехи, глитч -->
+  <div id="fx" aria-hidden="true"></div>
+
+  <!-- Шильдик на корпусе -->
+  <div class="bezel-badge">СТАНЦИЯ «РУБИН» · АП-2 · ЛОГАРИФМ <i class="bled"></i></div>
+
+  <!-- Стекло ЭЛТ: кривизна, шум, блик, виньетка, развёртки -->
+  <div id="tube" aria-hidden="true">
+    <div class="tube-curvature"></div>
+    <div class="tube-noise"></div>
+    <div class="tube-glare"></div>
+    <div class="tube-vignette"></div>
+    <div class="tube-edge"></div>
+  </div>
 </div>
-
-<!-- Кинетический слой: титры, крупные слова, плакаты -->
-<div id="kinetic" aria-hidden="true"><div id="kineticStage"></div></div>
-
-<!-- Оверлей эффектов: помехи, глитч -->
-<div id="fx" aria-hidden="true"></div>
 
 <!-- WebGL-переходы между сеансами -->
 <canvas id="gltrans" aria-hidden="true"></canvas>

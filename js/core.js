@@ -59,6 +59,14 @@ window.TERM = window.TERM || {};
   }
   TERM.setPaused = setPaused;
 
+  /* размагничивание (wobble картинки, корпус не трясётся) */
+  function degauss() {
+    if (!TERM.fxOn || !el.crt) return;
+    el.crt.classList.remove('degauss');
+    void el.crt.offsetWidth;
+    el.crt.classList.add('degauss');
+  }
+
   function save() {
     try { localStorage.setItem('termlog.progress.v1', JSON.stringify({ e: st.cur })); } catch (e) {}
   }
@@ -455,6 +463,7 @@ window.TERM = window.TERM || {};
     }
     hud.hide();
     if (TERM.kinetic._cancel) TERM.kinetic._cancel();
+    degauss();   /* размагничивание при смене сеанса */
     await crtClear();
     if (tok !== st.token) return;
     var ep = eps[i];
@@ -561,6 +570,8 @@ window.TERM = window.TERM || {};
       askPrompt: document.getElementById('askPrompt'),
       askOpts: document.getElementById('askOpts'),
       btnPause: document.getElementById('btnPause'),
+      btnFx: document.getElementById('btnFx'),
+      crt: document.getElementById('crt'),
       sess: document.getElementById('sessLabel'),
       progress: document.getElementById('sessProgress'),
       menu: document.getElementById('menuPop'),
@@ -588,9 +599,10 @@ window.TERM = window.TERM || {};
     TERM.trans.init();
     TERM.kinetic.init();
 
-    /* клавиатура: цифры — выбор, пробел/Enter — ускорить печать, P — пауза */
+    /* клавиатура: цифры — выбор, пробел/Enter — ускорить печать, P — пауза, F — эффекты */
     document.addEventListener('keydown', function (e) {
       if (e.code === 'KeyP' && st.started) { e.preventDefault(); setPaused(!st.paused); return; }
+      if (e.code === 'KeyF' && st.started) { e.preventDefault(); TERM.toggleFx(); return; }
       if (e.key === ' ') {
         e.preventDefault();
         if (st.paused) { setPaused(false); st.skip = false; return; }  /* пробел снимает паузу */
@@ -606,6 +618,25 @@ window.TERM = window.TERM || {};
       }
     });
     el.btnPause.addEventListener('click', function () { setPaused(!st.paused); });
+
+    /* ---------- Тумблер эффектов ЭЛТ (FX) ---------- */
+    TERM.fxOn = true;
+    try { var fxPref = localStorage.getItem('termlog.fx.v1'); if (fxPref !== null) TERM.fxOn = fxPref === '1'; } catch (e) {}
+    function applyFx() {
+      document.body.classList.toggle('fx-off', !TERM.fxOn);
+      if (el.btnFx) el.btnFx.setAttribute('aria-pressed', String(TERM.fxOn));
+    }
+    TERM.toggleFx = function () {
+      TERM.fxOn = !TERM.fxOn;
+      try { localStorage.setItem('termlog.fx.v1', TERM.fxOn ? '1' : '0'); } catch (e) {}
+      applyFx();
+    };
+    applyFx();
+    el.btnFx.addEventListener('click', TERM.toggleFx);
+    /* размагничивание: класс на корпус, снятие по концу анимации */
+    el.crt.addEventListener('animationend', function (e) {
+      if (e.animationName === 'degaussAnim') el.crt.classList.remove('degauss');
+    });
     el.feed.addEventListener('click', function () { st.skip = true; });
     el.feed.addEventListener('scroll', onScroll, { passive: true });
     el.pill.addEventListener('click', forceScroll);
